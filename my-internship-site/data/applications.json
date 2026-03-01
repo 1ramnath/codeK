@@ -243,5 +243,54 @@
     "paymentProofUploadedAt": "2026-02-28T18:38:22.691Z",
     "paymentStatus": "verified",
     "paymentVerifiedAt": "2026-02-28T18:38:51.888Z"
+  },
+  {
+    "id": "app_1772372884470",
+    "internshipId": "4",
+    "fullName": "Ramnath Tamangonda",
+    "email": "ramnathtam0783@gmail.com",
+    "phone": "+918767065660",
+    "resume": "",
+    "coverLetter": "sf",
+    "status": "completed",
+    "paid": true,
+    "appliedAt": "2026-03-01T13:48:04.470Z",
+    "tasks": [
+      {
+        "id": "task_1_1772372938953",
+        "title": "Simple URL Shortener",
+        "description": "Create a backend server using Flask (Python) or Express.js (Node.js). Build an API endpoint to accept long URLs and generate a unique short code. Store the mapping of short code and original URL in a database (like SQLite, MongoDB, etc.). Set up a redirect route where accessing the short URL takes the user to the...",
+        "status": "submitted",
+        "submittedUrl": "https://github.com/1ramnath/CodeAlpha_ImageGallery",
+        "submittedAt": "2026-03-01T13:51:11.655Z"
+      },
+      {
+        "id": "task_2_1772372938953",
+        "title": "Event Registration System Set up backend using Django",
+        "description": "Create models for events and user registrations in your database (like PostgreSQL, MongoDB etc.). Build API endpoints to view event list, event details, and submit registration forms. Link registrations to users and events, and allow users to manage (view/cancel) their registrations. Optional: Add management panel or...",
+        "status": "submitted",
+        "submittedUrl": "https://github.com/1ramnath/CodeAlpha_ImageGallery",
+        "submittedAt": "2026-03-01T13:52:08.827Z"
+      },
+      {
+        "id": "task_3_1772372938953",
+        "title": "Restaurant Management System Set up backend using Django",
+        "description": "Create APIs for placing orders, reserving tables, updating inventory, and viewing menu. Implement logic for order processing, table availability check, and inventory auto-update. Optional: Add reporting features (e.g., daily sales, stock alerts) and management access panel.",
+        "status": "pending"
+      },
+      {
+        "id": "task_4_1772372938953",
+        "title": "Job Board Platform Set up backend using Django",
+        "description": "Build API endpoints for posting jobs, searching jobs, uploading resumes, applying for jobs, and tracking applications. Implement logic for job search filters, resume uploads, application status updates, and employer notifications. Optional: Add management panel and reporting features like application statistics and user...",
+        "status": "pending"
+      }
+    ],
+    "approvedAt": "2026-03-01T13:48:58.953Z",
+    "paymentId": "pay_1772373187566",
+    "paidAt": "2026-03-01T13:53:07.566Z",
+    "paymentProofUrl": "/uploads/payments/app_1772372884470_1772373187543.jpg",
+    "paymentProofUploadedAt": "2026-03-01T13:53:07.567Z",
+    "paymentStatus": "verified",
+    "paymentVerifiedAt": "2026-03-01T13:53:39.469Z"
   }
 ]
