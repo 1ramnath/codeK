@@ -1,22 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-import { Application } from "@/types/application";
 import { internships } from "@/data/internships";
+export const runtime = "nodejs";
 
-const applicationsFile = path.join(process.cwd(), "data", "applications.json");
-
-function readApplications(): Application[] {
-  try {
-    if (fs.existsSync(applicationsFile)) {
-      const data = fs.readFileSync(applicationsFile, "utf-8");
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error("Error reading applications:", error);
-  }
-  return [];
-}
+import dbConnect from "@/lib/mongodb";
+import { Application as ApplicationModel } from "@/lib/models/Application";
+import { toApiApplication } from "@/lib/applicationMapper";
+import { requireAdminFromHeader } from "@/lib/adminAuth";
 
 function getInternshipTitle(id: string): string {
   return internships.find((i) => i.id === id)?.title || "Unknown Program";
@@ -24,7 +13,13 @@ function getInternshipTitle(id: string): string {
 
 export async function GET(request: NextRequest) {
   try {
-    const applications = readApplications();
+    if (!requireAdminFromHeader(request)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    await dbConnect();
+    const raw = await ApplicationModel.find({}).sort({ appliedAt: -1 }).lean();
+    const applications = raw.map(toApiApplication);
 
     // Format the data as a readable text file
     let textContent = "==============================================================\n";
@@ -104,6 +99,7 @@ export async function GET(request: NextRequest) {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
       },
     });
   } catch (error) {

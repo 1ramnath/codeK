@@ -24,25 +24,32 @@ export default function ManagementPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [isPasswordCorrect, setIsPasswordCorrect] = useState(false);
+  const [adminCode, setAdminCode] = useState("");
   const [password, setPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
-  const ACCESS_CODE = "access123"; // Simple access code - in production, use proper authentication
-
   const getInternshipTitle = (id: string) => {
     return internships.find((i) => i.id === id)?.title || "Unknown Track";
   };
 
-  const fetchApplications = async () => {
+  const fetchApplications = async (code: string) => {
+    setLoading(true);
     try {
-      const response = await fetch("/api/applications");
-      if (!response.ok) throw new Error("Failed to fetch applications");
+      const response = await fetch("/api/applications", {
+        headers: { "x-admin-code": code },
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data?.error || "Failed to fetch applications");
+      }
       const data = await response.json();
       setApplications(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
+      throw err;
     } finally {
       setLoading(false);
     }
@@ -50,15 +57,24 @@ export default function ManagementPage() {
 
   const handlePasswordSubmit = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (password === ACCESS_CODE) {
-      setIsPasswordCorrect(true);
-      setPassword("");
-      setPasswordError("");
-      fetchApplications();
-    } else {
-      setPasswordError("Incorrect password. Please try again.");
-      setPassword("");
-    }
+    const code = password.trim();
+    if (!code) return;
+
+    setLoading(true);
+    setError("");
+    setPasswordError("");
+
+    fetchApplications(code)
+      .then(() => {
+        setAdminCode(code);
+        setIsPasswordCorrect(true);
+        setPassword("");
+      })
+      .catch((err) => {
+        setPasswordError(err instanceof Error ? err.message : "Incorrect access code. Please try again.");
+        setPassword("");
+        setLoading(false);
+      });
   };
 
   const handleStatusUpdate = async (
@@ -68,7 +84,7 @@ export default function ManagementPage() {
     try {
       const response = await fetch(`/api/applications/${appId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-admin-code": adminCode },
         body: JSON.stringify({ status: newStatus }),
       });
 
@@ -84,7 +100,7 @@ export default function ManagementPage() {
       if (newStatus === "approved") {
         const taskResponse = await fetch("/api/tasks/assign", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-admin-code": adminCode },
           body: JSON.stringify({ applicationId: appId }),
         });
 
@@ -93,9 +109,7 @@ export default function ManagementPage() {
         }
       }
 
-      setApplications((prev) =>
-        prev.map((app) => (app.id === appId ? { ...app, status: newStatus } : app))
-      );
+      await fetchApplications(adminCode);
 
       if (newStatus === "approved") {
         alert("Application approved and tasks assigned.");
@@ -109,7 +123,7 @@ export default function ManagementPage() {
     try {
       const response = await fetch("/api/payments/verify", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-admin-code": adminCode },
         body: JSON.stringify({ applicationId: appId, status }),
       });
 
@@ -120,6 +134,7 @@ export default function ManagementPage() {
 
       const data = await response.json();
       setApplications((prev) => prev.map((app) => (app.id === appId ? data.application : app)));
+      await fetchApplications(adminCode);
 
       alert(`Payment ${status}.`);
     } catch (err) {
@@ -129,7 +144,10 @@ export default function ManagementPage() {
 
   const handleExportToFile = async () => {
     try {
-      const response = await fetch("/api/export");
+      const response = await fetch("/api/export", {
+        headers: { "x-admin-code": adminCode },
+        cache: "no-store",
+      });
       if (!response.ok) throw new Error("Failed to download file");
 
       const blob = await response.blob();
@@ -143,6 +161,27 @@ export default function ManagementPage() {
       document.body.removeChild(a);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to download file");
+    }
+  };
+
+  const handleClearAll = async () => {
+    const confirmText = prompt("Type CLEAR to delete ALL applications (cannot be undone):") || "";
+    if (confirmText.trim().toUpperCase() !== "CLEAR") return;
+
+    try {
+      const response = await fetch("/api/applications", {
+        method: "DELETE",
+        headers: { "x-admin-code": adminCode },
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data?.error || "Failed to clear applications");
+      }
+
+      setApplications([]);
+      alert("All applications cleared.");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to clear applications");
     }
   };
 
@@ -254,8 +293,21 @@ export default function ManagementPage() {
             Export TXT
           </button>
           <button
+            onClick={() => fetchApplications(adminCode)}
+            className="rounded-2xl bg-[var(--brand)] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:brightness-110 transition"
+          >
+            Refresh
+          </button>
+          <button
+            onClick={handleClearAll}
+            className="rounded-2xl bg-[rgba(239,68,68,0.14)] px-4 py-3 text-sm font-semibold text-[rgba(153,27,27,1)] hover:bg-[rgba(239,68,68,0.20)] transition"
+          >
+            Clear all
+          </button>
+          <button
             onClick={() => {
               setIsPasswordCorrect(false);
+              setAdminCode("");
               setApplications([]);
               setLoading(true);
               setError("");
@@ -427,7 +479,7 @@ export default function ManagementPage() {
                   <p className="text-sm font-semibold text-[var(--foreground)]">Payment proof</p>
                   <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <img
-                      src={app.paymentProofUrl}
+                      src={`${app.paymentProofUrl}?code=${encodeURIComponent(adminCode)}`}
                       alt="Payment proof screenshot"
                       className="w-full max-w-xs rounded-2xl border border-[var(--border)] bg-white"
                     />

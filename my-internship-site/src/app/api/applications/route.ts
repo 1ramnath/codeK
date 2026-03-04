@@ -1,42 +1,12 @@
-import { Application } from "@/types/application";
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
+export const runtime = "nodejs";
 
-// Path to store applications
-const applicationsFile = path.join(process.cwd(), "data", "applications.json");
+import crypto from "crypto";
 
-// Ensure data directory exists
-function ensureDataDir() {
-  const dir = path.dirname(applicationsFile);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
-// Read applications from file
-function readApplications(): Application[] {
-  try {
-    ensureDataDir();
-    if (fs.existsSync(applicationsFile)) {
-      const data = fs.readFileSync(applicationsFile, "utf-8");
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error("Error reading applications:", error);
-  }
-  return [];
-}
-
-// Write applications to file
-function writeApplications(applications: Application[]): void {
-  try {
-    ensureDataDir();
-    fs.writeFileSync(applicationsFile, JSON.stringify(applications, null, 2));
-  } catch (error) {
-    console.error("Error writing applications:", error);
-  }
-}
+import dbConnect from "@/lib/mongodb";
+import { Application as ApplicationModel } from "@/lib/models/Application";
+import { toApiApplication } from "@/lib/applicationMapper";
+import { requireAdminFromHeader } from "@/lib/adminAuth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -59,60 +29,76 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create new application
-    const application: Application = {
-      id: `app_${Date.now()}`,
-      internshipId,
-      fullName,
-      email,
-      phone,
-      resume: "", // Can be added later with file upload
-      coverLetter,
-      status: "pending", // Default status is pending
-      paid: false,
-      // repoUrl is intentionally left undefined until the student submits the task
-      appliedAt: new Date().toISOString(),
-    };
-    if (repoUrl) {
-      application.repoUrl = repoUrl;
-    }
+    await dbConnect();
 
-    // Add to list
-    const applications = readApplications();
-    applications.push(application);
-    writeApplications(applications);
+    const applicationId = `app_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    const created = await ApplicationModel.create({
+      id: applicationId,
+      internshipId: String(internshipId).trim(),
+      fullName: String(fullName).trim(),
+      email: String(email).trim().toLowerCase(),
+      phone: String(phone).trim(),
+      resume: "",
+      coverLetter: String(coverLetter).trim(),
+      status: "pending",
+      paid: false,
+      repoUrl: repoUrl ? String(repoUrl).trim() : undefined,
+      appliedAt: new Date(),
+    });
 
     return NextResponse.json(
-      { message: "Application submitted successfully", application },
-      { status: 201 }
+      { message: "Application submitted successfully", application: toApiApplication(created) },
+      { status: 201, headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {
     console.error("Error processing application:", error);
     return NextResponse.json(
       { error: "Failed to process application" },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }
 }
 
 export async function GET(request: NextRequest) {
   try {
-    const applications = readApplications();
-
     const email = new URL(request.url).searchParams.get("email")?.trim() || "";
     const normalizedEmail = email.toLowerCase();
 
-    const visible = normalizedEmail
-      ? applications.filter((app) => (app.email || "").toLowerCase() === normalizedEmail)
-      : applications;
+    if (!normalizedEmail && !requireAdminFromHeader(request)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    const sorted = [...visible].sort((a, b) => (b.appliedAt || "").localeCompare(a.appliedAt || ""));
-    return NextResponse.json(sorted);
+    await dbConnect();
+
+    const query = normalizedEmail ? { email: normalizedEmail } : {};
+    const apps = await ApplicationModel.find(query).sort({ appliedAt: -1 }).lean();
+    return NextResponse.json(apps.map(toApiApplication), { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("Error fetching applications:", error);
     return NextResponse.json(
       { error: "Failed to fetch applications" },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    if (!requireAdminFromHeader(request)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    await dbConnect();
+    const result = await ApplicationModel.deleteMany({});
+    return NextResponse.json(
+      { message: "All applications cleared", deletedCount: result.deletedCount || 0 },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  } catch (error) {
+    console.error("Error clearing applications:", error);
+    return NextResponse.json(
+      { error: "Failed to clear applications" },
+      { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }
 }

@@ -7,6 +7,9 @@ import { Resvg } from "@resvg/resvg-js";
 
 import { Application } from "@/types/application";
 import { internships } from "@/data/internships";
+import dbConnect from "@/lib/mongodb";
+import { Application as ApplicationModel } from "@/lib/models/Application";
+import { toApiApplication } from "@/lib/applicationMapper";
 
 const COMPANY_NAME = "codeK";
 const COMPANY_TAGLINE = "Virtual Internship Platform";
@@ -14,13 +17,25 @@ const COMPANY_WEBSITE = "codek.io";
 const COMPANY_EMAIL = "support@codek.io";
 const COMPANY_ADDRESS = "Remote, Global";
 
-const applicationsFile = path.join(process.cwd(), "data", "applications.json");
 const LOGO_FILE_PATH = path.join(process.cwd(), "Gemini_Generated_Image_6oua0i6oua0i6oua.png");
 const SIGNATURE_FILE_CANDIDATES = [
   path.join(process.cwd(), "public", "signature.png"),
   path.join(process.cwd(), "public", "signature.jpg"),
   path.join(process.cwd(), "public", "signature.jpeg"),
   path.join(process.cwd(), "public", "signature.webp"),
+];
+const FONT_FILE_CANDIDATES = [
+  path.join(process.cwd(), "public", "fonts", "NotoSans-Regular.ttf"),
+  path.join(
+    process.cwd(),
+    "node_modules",
+    "next",
+    "dist",
+    "compiled",
+    "@vercel",
+    "og",
+    "noto-sans-v27-latin-regular.ttf"
+  ),
 ];
 
 let cachedLogoDataUri: string | null | undefined;
@@ -67,16 +82,14 @@ function getSignatureDataUri(): string | null {
   return cachedSignatureDataUri;
 }
 
-function readApplications(): Application[] {
-  try {
-    if (fs.existsSync(applicationsFile)) {
-      const data = fs.readFileSync(applicationsFile, "utf-8");
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error("Error reading applications:", error);
+function getResvgFontFiles(): string[] {
+  const existing: string[] = [];
+  for (const candidate of FONT_FILE_CANDIDATES) {
+    try {
+      if (fs.existsSync(candidate)) existing.push(candidate);
+    } catch {}
   }
-  return [];
+  return existing;
 }
 
 function getInternshipTitle(id: string): string {
@@ -324,7 +337,15 @@ function renderOfferLetterSvg(application: Application): string {
 }
 
 function renderPngFromSvg(svg: string): Uint8Array {
-  const resvg = new Resvg(svg, { background: "white" });
+  const fontFiles = getResvgFontFiles();
+  const resvg = new Resvg(svg, {
+    background: "white",
+    font: {
+      loadSystemFonts: true,
+      fontFiles,
+      defaultFontFamily: "Noto Sans",
+    },
+  });
   const rendered = resvg.render();
   const pngData = rendered.asPng();
   return pngData;
@@ -343,8 +364,9 @@ export async function GET(
   try {
     const { id, type } = await params;
 
-    const applications = readApplications();
-    const application = applications.find((app) => app.id === id);
+    await dbConnect();
+    const raw = await ApplicationModel.findOne({ id }).lean();
+    const application: Application | null = raw ? toApiApplication(raw) : null;
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 });
     }

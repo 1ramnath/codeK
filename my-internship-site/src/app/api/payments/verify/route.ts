@@ -1,41 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-import { Application } from "@/types/application";
+export const runtime = "nodejs";
 
-const applicationsFile = path.join(process.cwd(), "data", "applications.json");
-
-function ensureDataDir() {
-  const dir = path.dirname(applicationsFile);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
-function readApplications(): Application[] {
-  try {
-    ensureDataDir();
-    if (fs.existsSync(applicationsFile)) {
-      const data = fs.readFileSync(applicationsFile, "utf-8");
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error("Error reading applications:", error);
-  }
-  return [];
-}
-
-function writeApplications(applications: Application[]): void {
-  try {
-    ensureDataDir();
-    fs.writeFileSync(applicationsFile, JSON.stringify(applications, null, 2));
-  } catch (error) {
-    console.error("Error writing applications:", error);
-  }
-}
+import dbConnect from "@/lib/mongodb";
+import { Application as ApplicationModel } from "@/lib/models/Application";
+import { toApiApplication } from "@/lib/applicationMapper";
+import { requireAdminFromHeader } from "@/lib/adminAuth";
 
 export async function POST(request: NextRequest) {
   try {
+    if (!requireAdminFromHeader(request)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
     const { applicationId, status } = body;
 
@@ -43,28 +19,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid verification request" }, { status: 400 });
     }
 
-    const applications = readApplications();
-    const application = applications.find((a) => a.id === applicationId);
+    await dbConnect();
+    const application = await ApplicationModel.findOne({ id: applicationId });
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 });
     }
 
-    if (!application.paymentProofUrl) {
+    if (!application.paymentProof?.base64 && !application.paymentProofUrl) {
       return NextResponse.json({ error: "No payment proof uploaded" }, { status: 400 });
     }
 
     application.paymentStatus = status;
     if (status === "verified") {
       application.paid = true;
-      application.paymentVerifiedAt = new Date().toISOString();
+      application.paymentVerifiedAt = new Date();
     } else {
       application.paid = false;
       application.paymentVerifiedAt = undefined;
     }
 
-    writeApplications(applications);
+    await application.save();
 
-    return NextResponse.json({ message: "Payment status updated", application });
+    return NextResponse.json(
+      { message: "Payment status updated", application: toApiApplication(application) },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (error) {
     console.error("Error verifying payment:", error);
     return NextResponse.json({ error: "Failed to verify payment" }, { status: 500 });

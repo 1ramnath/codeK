@@ -1,30 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-import { Application, Task } from "@/types/application";
+export const runtime = "nodejs";
 
-const applicationsFile = path.join(process.cwd(), "data", "applications.json");
-
-function readApplications(): Application[] {
-  try {
-    if (fs.existsSync(applicationsFile)) {
-      const data = fs.readFileSync(applicationsFile, "utf-8");
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error("Error reading applications:", error);
-  }
-  return [];
-}
-
-function writeApplications(applications: Application[]): void {
-  try {
-    fs.writeFileSync(applicationsFile, JSON.stringify(applications, null, 2));
-  } catch (error) {
-    console.error("Error writing applications:", error);
-    throw error;
-  }
-}
+import dbConnect from "@/lib/mongodb";
+import { Application as ApplicationModel } from "@/lib/models/Application";
+import type { ITask } from "@/lib/models/Application";
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,8 +16,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const applications = readApplications();
-    const application = applications.find((app) => app.id === applicationId);
+    await dbConnect();
+    const application = await ApplicationModel.findOne({ id: applicationId });
 
     if (!application) {
       return NextResponse.json(
@@ -61,7 +40,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const task = application.tasks.find((t) => t.id === taskId);
+    const tasks = (application.tasks as unknown as ITask[]) || [];
+    const task = tasks.find((t) => t.id === taskId);
     if (!task) {
       return NextResponse.json(
         { error: "Task not found" },
@@ -79,11 +59,10 @@ export async function POST(request: NextRequest) {
 
     // Update task submission
     task.submittedUrl = submittedUrl;
-    task.submittedAt = new Date().toISOString();
+    task.submittedAt = new Date();
     task.status = "submitted";
 
-    // Save updated applications
-    writeApplications(applications);
+    await application.save();
 
     return NextResponse.json({
       message: "Task submitted successfully",

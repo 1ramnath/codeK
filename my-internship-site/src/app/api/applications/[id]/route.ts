@@ -1,44 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-import { Application } from "@/types/application";
+export const runtime = "nodejs";
 
-const applicationsFile = path.join(process.cwd(), "data", "applications.json");
-
-function ensureDataDir() {
-  const dir = path.dirname(applicationsFile);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
-function readApplications(): Application[] {
-  try {
-    ensureDataDir();
-    if (fs.existsSync(applicationsFile)) {
-      const data = fs.readFileSync(applicationsFile, "utf-8");
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error("Error reading applications:", error);
-  }
-  return [];
-}
-
-function writeApplications(applications: Application[]): void {
-  try {
-    ensureDataDir();
-    fs.writeFileSync(applicationsFile, JSON.stringify(applications, null, 2));
-  } catch (error) {
-    console.error("Error writing applications:", error);
-  }
-}
+import dbConnect from "@/lib/mongodb";
+import { Application as ApplicationModel } from "@/lib/models/Application";
+import { toApiApplication } from "@/lib/applicationMapper";
+import { requireAdminFromHeader } from "@/lib/adminAuth";
+import type { ITask } from "@/lib/models/Application";
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    if (!requireAdminFromHeader(request)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { id } = await params;
     const body = await request.json();
     const { status } = body;
@@ -50,8 +27,8 @@ export async function PUT(
       );
     }
 
-    const applications = readApplications();
-    const application = applications.find((app) => app.id === id);
+    await dbConnect();
+    const application = await ApplicationModel.findOne({ id });
 
     if (!application) {
       return NextResponse.json(
@@ -61,8 +38,8 @@ export async function PUT(
     }
 
     if (status === "completed") {
-      const submittedTasksCount =
-        application.tasks?.filter((t) => t.status !== "pending" && t.submittedUrl).length || 0;
+      const tasks = (application.tasks as unknown as ITask[] | undefined) || [];
+      const submittedTasksCount = tasks.filter((t) => t.status !== "pending" && t.submittedUrl).length;
 
       if (submittedTasksCount < 2) {
         return NextResponse.json(
@@ -73,11 +50,17 @@ export async function PUT(
     }
 
     application.status = status;
-    writeApplications(applications);
+    if (status === "approved" && !application.approvedAt) {
+      application.approvedAt = new Date();
+    }
+    if (status === "completed" && !application.completedAt) {
+      application.completedAt = new Date();
+    }
+    await application.save();
 
     return NextResponse.json({
       message: "Application status updated",
-      application,
+      application: toApiApplication(application),
     });
   } catch (error) {
     console.error("Error updating application:", error);
@@ -93,9 +76,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    if (!requireAdminFromHeader(request)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { id } = await params;
-    const applications = readApplications();
-    const application = applications.find((app) => app.id === id);
+    await dbConnect();
+    const application = await ApplicationModel.findOne({ id }).lean();
 
     if (!application) {
       return NextResponse.json(
@@ -104,7 +91,7 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(application);
+    return NextResponse.json(toApiApplication(application), { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("Error fetching application:", error);
     return NextResponse.json(

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "node scripts/copy-resvg-font.js",
     "dev": "next dev --webpack",
     "dev:turbo": "next dev --turbo",
     "build": "next build",
@@ -11,6 +12,7 @@
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
+    "mongoose": "^9.2.3",
     "next": "16.1.6",
     "pdfkit": "^0.13.0",
     "qrcode": "^1.5.4",

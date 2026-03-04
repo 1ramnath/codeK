@@ -1,48 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-import { Application } from "@/types/application";
+export const runtime = "nodejs";
 
-const applicationsFile = path.join(process.cwd(), "data", "applications.json");
-const paymentProofDir = path.join(process.cwd(), "public", "uploads", "payments");
+import crypto from "crypto";
 
-function readApplications(): Application[] {
-  try {
-    if (fs.existsSync(applicationsFile)) {
-      const data = fs.readFileSync(applicationsFile, "utf-8");
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error("Error reading applications:", error);
-  }
-  return [];
-}
-
-function writeApplications(applications: Application[]): void {
-  try {
-    fs.writeFileSync(applicationsFile, JSON.stringify(applications, null, 2));
-  } catch (error) {
-    console.error("Error writing applications:", error);
-  }
-}
-
-function ensurePaymentProofDir(): void {
-  if (!fs.existsSync(paymentProofDir)) {
-    fs.mkdirSync(paymentProofDir, { recursive: true });
-  }
-}
-
-function getSafeExtension(fileName: string, fileType: string): string {
-  const fallback = fileType.split("/")[1];
-  const cleanedName = fileName.toLowerCase();
-  if (cleanedName.endsWith(".png")) return "png";
-  if (cleanedName.endsWith(".jpg") || cleanedName.endsWith(".jpeg")) return "jpg";
-  if (cleanedName.endsWith(".webp")) return "webp";
-  if (fallback === "png" || fallback === "jpeg" || fallback === "webp") {
-    return fallback === "jpeg" ? "jpg" : fallback;
-  }
-  return "png";
-}
+import dbConnect from "@/lib/mongodb";
+import { Application as ApplicationModel } from "@/lib/models/Application";
+import { toApiApplication } from "@/lib/applicationMapper";
 
 export async function POST(request: NextRequest) {
   try {
@@ -71,8 +34,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid payment amount" }, { status: 400 });
     }
 
-    const applications = readApplications();
-    const application = applications.find((a) => a.id === applicationId);
+    await dbConnect();
+    const application = await ApplicationModel.findOne({ id: applicationId });
     if (!application) {
       return NextResponse.json({ error: "Application not found" }, { status: 404 });
     }
@@ -91,24 +54,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    ensurePaymentProofDir();
-    const extension = getSafeExtension(paymentProof.name, paymentProof.type);
-    const safeFileName = `${applicationId}_${Date.now()}.${extension}`;
-    const filePath = path.join(paymentProofDir, safeFileName);
     const buffer = Buffer.from(await paymentProof.arrayBuffer());
-    fs.writeFileSync(filePath, buffer);
+    const base64 = buffer.toString("base64");
 
     // Record payment proof for verification
     application.paid = false;
-    application.paymentId = `pay_${Date.now()}`;
-    application.paidAt = new Date().toISOString();
-    application.paymentProofUrl = `/uploads/payments/${safeFileName}`;
-    application.paymentProofUploadedAt = new Date().toISOString();
+    application.paymentId = `pay_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    application.paidAt = new Date();
+    application.paymentProofUploadedAt = new Date();
+    application.paymentProof = {
+      mime: paymentProof.type,
+      base64,
+      fileName: paymentProof.name,
+      size: buffer.byteLength,
+    };
+    application.paymentProofUrl = `/api/payments/proof/${encodeURIComponent(application.id)}`;
     application.paymentStatus = "pending";
 
-    writeApplications(applications);
+    await application.save();
 
-    return NextResponse.json({ message: "Payment recorded", application });
+    return NextResponse.json(
+      { message: "Payment recorded", application: toApiApplication(application) },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (error) {
     console.error("Error processing payment:", error);
     return NextResponse.json({ error: "Failed to process payment" }, { status: 500 });

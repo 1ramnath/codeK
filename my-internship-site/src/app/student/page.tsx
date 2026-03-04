@@ -374,11 +374,9 @@ export default function StudentDashboard() {
                   <p className="text-sm font-semibold text-[var(--foreground)]">
                       Payment proof submitted. Waiting for verification.
                     </p>
-                  {app.paymentProofUrl && (
-                    <p className="mt-2 text-xs text-[var(--muted-2)] break-all">
-                      Proof file: {app.paymentProofUrl}
-                    </p>
-                  )}
+                  <p className="mt-2 text-xs text-[var(--muted-2)]">
+                    Your screenshot has been uploaded and is pending admin verification.
+                  </p>
                 </div>
               )}
 

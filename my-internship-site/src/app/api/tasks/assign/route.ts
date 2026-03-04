@@ -1,30 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-import { Application, Task } from "@/types/application";
+import { Task } from "@/types/application";
+export const runtime = "nodejs";
 
-const applicationsFile = path.join(process.cwd(), "data", "applications.json");
+import crypto from "crypto";
 
-function readApplications(): Application[] {
-  try {
-    if (fs.existsSync(applicationsFile)) {
-      const data = fs.readFileSync(applicationsFile, "utf-8");
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error("Error reading applications:", error);
-  }
-  return [];
-}
-
-function writeApplications(applications: Application[]): void {
-  try {
-    fs.writeFileSync(applicationsFile, JSON.stringify(applications, null, 2));
-  } catch (error) {
-    console.error("Error writing applications:", error);
-    throw error;
-  }
-}
+import dbConnect from "@/lib/mongodb";
+import { Application as ApplicationModel } from "@/lib/models/Application";
+import { requireAdminFromHeader } from "@/lib/adminAuth";
 
 const DEFAULT_TASKS: Task[] =   [
     {
@@ -923,6 +905,10 @@ function getTasksForInternship(internshipId: string | undefined): Task[] {
 
 export async function POST(request: NextRequest) {
   try {
+    if (!requireAdminFromHeader(request)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { applicationId } = await request.json();
 
     if (!applicationId) {
@@ -932,8 +918,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const applications = readApplications();
-    const application = applications.find((app) => app.id === applicationId);
+    await dbConnect();
+    const application = await ApplicationModel.findOne({ id: applicationId });
 
     if (!application) {
       return NextResponse.json(
@@ -947,12 +933,12 @@ export async function POST(request: NextRequest) {
       const sourceTasks = getTasksForInternship(application.internshipId);
       application.tasks = sourceTasks.map((task) => ({
         ...task,
-        id: `${task.id}_${Date.now()}`, // Unique task ID
+        id: `${task.id}_${crypto.randomUUID().slice(0, 8)}`, // Unique task ID
       }));
-      application.approvedAt = new Date().toISOString();
+      application.approvedAt = new Date();
       application.status = "approved";
 
-      writeApplications(applications);
+      await application.save();
     }
 
     return NextResponse.json({
